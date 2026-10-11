@@ -45,7 +45,7 @@ framework/
 python3 main.py list
 python3 main.py contracts          # audit every module contract — fails if incomplete
 python3 main.py run -m recon_report -t runehall.com   # full graded assessment
-python3 main.py run -m port_probe -t example.com --set auth_confirmed=yes  # auth-gated
+python3 main.py run -m port_probe -t runehall.com --set auth_confirmed=yes  # auth-gated
 python3 main.py run -m cf_zones -t account --set cf_token=...   # or export CF_TOKEN
 python3 main.py export -o output.json   # results + findings with evidence chains
 ```

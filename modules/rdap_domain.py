@@ -35,7 +35,7 @@ class RDAPModule(BaseModule):
         dom = self.target.strip().lower().replace("https://", "").replace("http://", "").split("/")[0]
         if not dom or "." not in dom:
             result.status = "FAILED"
-            result.errors.append("give a domain, e.g. example.com")
+            result.errors.append("give a domain, e.g. runehall.com")
             return result
         client, err = self.scoped_client()
         if err:

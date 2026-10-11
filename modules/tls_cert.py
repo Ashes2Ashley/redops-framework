@@ -74,7 +74,7 @@ class TLSCertModule(BaseModule):
         port = int(self.config.get("port", 443))
         if not host or "." not in host:
             result.status = "FAILED"
-            result.errors.append("give a hostname, e.g. example.com")
+            result.errors.append("give a hostname, e.g. runehall.com")
             return result
         # Fail-closed scope check for the raw TCP connection.
         scope = self.config.get("_scope")
