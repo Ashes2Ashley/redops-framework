@@ -68,3 +68,19 @@ class Scope:
 
     def allows_handle(self, handle):
         return handle.lower() in {h.lower() for h in self.handles}
+
+    def allows_host(self, host: str) -> bool:
+        """Scope check for non-URL targets (raw TCP in tls_cert/port_probe).
+        Hostname -> domain rules; IP literal -> CIDR rules."""
+        host = (host or "").lower().rstrip(".")
+        if not host:
+            return False
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            return self._domain_ok(host)
+        return self._ip_ok(host)
+
+    def require_host(self, host: str):
+        if not self.allows_host(host):
+            raise ScopeViolation("out of scope: %r" % host)

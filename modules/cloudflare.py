@@ -1,4 +1,9 @@
-"""Cloudflare account ops: zones, DNS, cache purge, workers. Needs CF_TOKEN."""
+"""Cloudflare account ops: zones, DNS, cache purge, workers. Needs CF_TOKEN.
+
+These modules operate on the OPERATOR'S OWN Cloudflare account under the
+token's authority — they are fleet-management tools, not target recon.
+cf_purge is destructive-adjacent and requires explicit confirm=yes.
+"""
 import json
 import os
 import urllib.request
@@ -40,6 +45,17 @@ class CFZonesModule(BaseModule):
     def name(self): return "cf_zones"
     @property
     def description(self): return "Lists Cloudflare zones on the token."
+    @property
+    def alias(self): return "my zones"
+    @property
+    def reads(self): return "Operator's own Cloudflare account (token-authenticated)."
+    @property
+    def returns(self): return "Zone names, ids, statuses, plans."
+    @property
+    def failure_modes(self): return [
+        "Token scope limits what you see — a restricted token shows a restricted world.",
+        "50-zone page cap; large accounts need pagination this module doesn't do.",
+    ]
     def run(self):
         r = ModuleResult(module_name=self.name, target=self.target or "account")
         try:
@@ -47,6 +63,11 @@ class CFZonesModule(BaseModule):
             r.status = "SUCCESS"
             r.data = {"zones": [{"name": z["name"], "id": z["id"], "status": z["status"],
                                  "plan": (z.get("plan") or {}).get("name", "?")} for z in zones]}
+            r.add_finding(
+                claim="%d Cloudflare zone(s) visible to this token" % len(zones),
+                tag="OBSERVED", method="Cloudflare API zones list (token-authenticated)",
+                evidence={"zone_names": [z["name"] for z in zones][:20]},
+                confidence="VERIFIED")
         except Exception as e:
             r.status = "ERROR"; r.errors.append(str(e))
         return r
@@ -56,6 +77,17 @@ class CFDnsModule(BaseModule):
     def name(self): return "cf_dns"
     @property
     def description(self): return "Lists DNS records for a zone. Target = zone name or id."
+    @property
+    def alias(self): return "my DNS records"
+    @property
+    def reads(self): return "Operator's own zone DNS records (token-authenticated)."
+    @property
+    def returns(self): return "Record list with type/name/content/proxied/TTL."
+    @property
+    def failure_modes(self): return [
+        "100-record page cap; large zones need pagination.",
+        "Shows the authoritative config, not what resolvers currently serve (propagation lag).",
+    ]
     def run(self):
         r = ModuleResult(module_name=self.name, target=self.target)
         try:
@@ -65,6 +97,10 @@ class CFDnsModule(BaseModule):
             r.data = {"zone_id": zid, "count": len(recs),
                       "records": [{"type": x["type"], "name": x["name"], "content": x["content"],
                                    "proxied": x["proxied"], "ttl": x["ttl"]} for x in recs]}
+            r.add_finding(
+                claim="%d DNS record(s) in zone %s" % (len(recs), zid[:8]),
+                tag="OBSERVED", method="Cloudflare API dns_records (token-authenticated)",
+                evidence={"zone_id": zid}, confidence="VERIFIED")
         except Exception as e:
             r.status = "ERROR"; r.errors.append(str(e))
         return r
@@ -74,6 +110,19 @@ class CFPurgeModule(BaseModule):
     def name(self): return "cf_purge"
     @property
     def description(self): return "Purges Cloudflare cache for a zone. Needs config confirm=yes."
+    @property
+    def alias(self): return "nuke the cache"
+    @property
+    def reads(self): return "Operator's own zone (token-authenticated); performs a purge."
+    @property
+    def returns(self): return "Purge confirmation."
+    @property
+    def failure_modes(self): return [
+        "Purge-everything is disruptive to your own traffic — it is a thundering-herd event.",
+        "confirm=yes is a speed bump, not a review. Read the zone id twice.",
+    ]
+    @property
+    def requires_auth(self): return True
     def run(self):
         r = ModuleResult(module_name=self.name, target=self.target)
         try:
@@ -82,6 +131,10 @@ class CFPurgeModule(BaseModule):
             zid = _zone_id(self.config, self.target)
             _call(self.config, f"/zones/{zid}/purge_cache", "POST", {"purge_everything": True})
             r.status = "SUCCESS"; r.data = {"zone_id": zid, "purged": True}
+            r.add_finding(
+                claim="Cache purged for zone %s (confirm=yes on record)" % zid[:8],
+                tag="OBSERVED", method="Cloudflare API purge_cache (token-authenticated)",
+                evidence={"zone_id": zid}, confidence="VERIFIED")
         except Exception as e:
             r.status = "ERROR"; r.errors.append(str(e))
         return r
@@ -91,6 +144,17 @@ class CFWorkersModule(BaseModule):
     def name(self): return "cf_workers"
     @property
     def description(self): return "Lists workers + account id (integrates your worker fleet)."
+    @property
+    def alias(self): return "my workers"
+    @property
+    def reads(self): return "Operator's own Cloudflare account (token-authenticated)."
+    @property
+    def returns(self): return "Account id, worker ids with created/modified dates."
+    @property
+    def failure_modes(self): return [
+        "Worker list needs the right token scopes; a limited token returns a limited fleet.",
+        "50-script page cap.",
+    ]
     def run(self):
         r = ModuleResult(module_name=self.name, target=self.target or "account")
         try:

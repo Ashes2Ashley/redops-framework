@@ -29,6 +29,12 @@ def main():
     run_parser.add_argument("--set", action="append", default=[], metavar="key=value",
                             help="Module config, repeatable (e.g. --set cf_token=abc --set confirm=yes)")
 
+    # Command: contracts
+    contracts_parser = subparsers.add_parser(
+        "contracts",
+        help="Audit every module's hardened contract (alias, failure modes). "
+             "Exits nonzero if any module is incomplete.")
+
     # Command: export
     export_parser = subparsers.add_parser("export", help="Export stored results to JSON")
     export_parser.add_argument("-o", "--output", default="export.json", help="Output JSON filename")
@@ -71,8 +77,32 @@ def main():
         result = engine.execute_module(module_name=args.module, target=args.target, config=config)
 
         row_id = storage.save_result(result)
-        print(f"[+] Run Complete. Status: {result.status} (Saved Record ID: {row_id})")
+        n_findings = storage.save_findings(result, row_id)
+        print(f"[+] Run Complete. Status: {result.status} (Saved Record ID: {row_id}, "
+              f"Findings: {n_findings})")
         print(json.dumps(result.to_dict(), indent=2))
+
+    elif args.command == "contracts":
+        engine = ModuleEngine(modules_package="modules")
+        report = engine.contract_report()
+        bad = 0
+        print(f"\nModule Contracts ({len(report)} modules):")
+        print("-" * 70)
+        for m in report:
+            flag = "OK " if not m["contract_problems"] else "FAIL"
+            if m["contract_problems"]:
+                bad += 1
+            auth = " [requires per-action authorization]" if m["requires_auth"] else ""
+            print(f"  [{flag}] {m['name']} — \"{m['alias']}\"{auth}")
+            if m["contract_problems"]:
+                for p in m["contract_problems"]:
+                    print(f"         ! {p}")
+            if not m["failure_modes"]:
+                print("         ! no failure modes declared")
+        print(f"\n{len(report) - bad}/{len(report)} contracts complete.")
+        if bad:
+            print("[!] incomplete contracts fail the build — fix them before shipping.")
+            raise SystemExit(1)
 
     elif args.command == "export":
         storage = StorageEngine(db_path=args.db)

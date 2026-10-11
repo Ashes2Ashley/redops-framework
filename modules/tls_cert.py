@@ -48,6 +48,26 @@ class TLSCertModule(BaseModule):
     def description(self) -> str:
         return "Grabs the live TLS certificate: subject, issuer, SANs, validity window."
 
+    @property
+    def alias(self) -> str:
+        return "certificates"
+
+    @property
+    def reads(self) -> str:
+        return "Live TLS handshake against the target host (raw TCP, proxy-aware)."
+
+    @property
+    def returns(self) -> str:
+        return "Subject, issuer, SANs, validity window, days remaining, TLS version/cipher, findings."
+
+    @property
+    def failure_modes(self) -> list:
+        return [
+            "SNI-dependent configs serve different certificates per hostname — one handshake is one view.",
+            "CDN/WAF fronts mask the origin certificate; you see the edge, not the server.",
+            "CERT_OPTIONAL never fails the handshake — an expired or self-signed cert still parses; check the dates yourself.",
+        ]
+
     def run(self) -> ModuleResult:
         result = ModuleResult(module_name=self.name, target=self.target)
         host = self.target.strip().lower().replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
@@ -55,6 +75,19 @@ class TLSCertModule(BaseModule):
         if not host or "." not in host:
             result.status = "FAILED"
             result.errors.append("give a hostname, e.g. example.com")
+            return result
+        # Fail-closed scope check for the raw TCP connection.
+        scope = self.config.get("_scope")
+        if scope is not None:
+            try:
+                scope.require_host(host)
+            except Exception as e:
+                result.status = "FAILED"
+                result.errors.append(str(e))
+                return result
+        elif not self.config.get("_allow_all", False):
+            result.status = "FAILED"
+            result.errors.append("unscoped run refused (no scope, no --allow-all)")
             return result
         try:
             ctx = ssl.create_default_context()
@@ -94,6 +127,20 @@ class TLSCertModule(BaseModule):
                 "tls_version": version,
                 "cipher": cipher[0] if cipher else "?",
             }
+            result.add_finding(
+                claim="TLS certificate for %s issued by %s, %d day(s) remaining"
+                      % (host, dn(cert.get("issuer")), days_left),
+                tag="OBSERVED", method="live TLS handshake (CERT_OPTIONAL, SNI=%s)" % host,
+                evidence={"not_before": cert.get("notBefore"),
+                          "not_after": cert.get("notAfter"),
+                          "tls_version": version},
+                confidence="CORROBORATED")
+            if days_left < 0:
+                result.add_finding(
+                    claim="TLS certificate for %s is EXPIRED" % host,
+                    tag="INFERRED", method="not_after compared to current date",
+                    evidence={"not_after": cert.get("notAfter")},
+                    confidence="VERIFIED")
         except socket.timeout:
             result.status = "CONNECTION_ERROR"
             result.errors.append("connection timed out")

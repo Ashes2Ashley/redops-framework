@@ -3,6 +3,16 @@
 Stdlib-only plugin framework for operational security modules. Drop a Python file
 in `modules/` inheriting `BaseModule` and the CLI picks it up automatically.
 
+Hardened build (`damien/max-hardening`): every module carries a contract
+(plain-English alias, reads, returns, **failure modes** — no module ships
+without them), and every key observation is an evidence-chained **Finding**
+(claim → tag → method → evidence → observed_date → confidence) persisted to
+SQLite alongside the raw result. Claim tags: `OBSERVED` (directly seen) /
+`INFERRED` (reasoned, reasoning shown) / `ASSUMED` (never briefed as fact).
+Confidence: `VERIFIED` / `CORROBORATED` / `DEBUNKED` / `STALE` /
+`UNVERIFIABLE` / `CONTESTED` / `LEAD`. Gaps produce exactly one output:
+`UNKNOWN — not observed.`
+
 ## Layout
 
 ```
@@ -19,7 +29,10 @@ framework/
 │   ├── rdap_domain.py   # RDAP registration data
 │   ├── email_security.py# SPF / DMARC / DKIM assessment
 │   ├── subdomain_enum.py# subdomains via certificate transparency
-│   ├── port_probe.py    # TCP connect probe (proxy-aware)
+│   ├── favicon_hash.py  # favicon md5/sha256 for origin correlation
+│   ├── dork_builder.py  # reviewable search-query builder (zero network)
+│   ├── timeline.py      # dated event timeline (RDAP + TLS + Wayback)
+│   ├── port_probe.py    # TCP connect probe — REQUIRES per-action authorization
 │   ├── intel.py         # wayback, reverse DNS, IP info, DNSSEC
 │   ├── cloudflare.py    # cf_zones, cf_dns, cf_purge, cf_workers (needs CF_TOKEN)
 │   └── recon_report.py  # runs the suite, graded A–F ops assessment
@@ -30,9 +43,11 @@ framework/
 
 ```bash
 python3 main.py list
+python3 main.py contracts          # audit every module contract — fails if incomplete
 python3 main.py run -m recon_report -t runehall.com   # full graded assessment
+python3 main.py run -m port_probe -t example.com --set auth_confirmed=yes  # auth-gated
 python3 main.py run -m cf_zones -t account --set cf_token=...   # or export CF_TOKEN
-python3 main.py export -o output.json
+python3 main.py export -o output.json   # results + findings with evidence chains
 ```
 
 Results are stored in `results.db` (SQLite) and exportable to JSON.

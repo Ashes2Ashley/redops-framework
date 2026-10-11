@@ -8,6 +8,26 @@ class SubdomainEnumModule(BaseModule):
         return "subdomain_enum"
 
     @property
+    def alias(self) -> str:
+        return "what's exposed"
+
+    @property
+    def reads(self) -> str:
+        return "crt.sh certificate transparency JSON API (public logs)."
+
+    @property
+    def returns(self) -> str:
+        return "Deduped subdomain list, certificate count, findings."
+
+    @property
+    def failure_modes(self) -> list:
+        return [
+            "Certificate logs lag issuance — brand-new subdomains may be missing.",
+            "Wildcard certs hide individual subdomains; absence from CT is not absence from DNS.",
+            "crt.sh rate-limits aggressively; partial results look complete if you don't check the count.",
+        ]
+
+    @property
     def description(self) -> str:
         return "Finds subdomains from public certificate transparency logs."
 
@@ -35,6 +55,15 @@ class SubdomainEnumModule(BaseModule):
             result.data = {"domain": dom, "certificates_seen": len(rows),
                            "subdomains_found": len(subs), "subdomains": subs[:100],
                            "served_from_cache": resp.from_cache}
+            if subs:
+                result.add_finding(
+                    claim="%d subdomains observed for %s via certificate transparency"
+                          % (len(subs), dom),
+                    tag="OBSERVED", method="crt.sh CT log query",
+                    evidence={"certificates_seen": len(rows),
+                              "sample": subs[:10],
+                              "retrieved_at": resp.retrieved_at},
+                    confidence="CORROBORATED" if not resp.from_cache else "LEAD")
         except Exception as e:
             # ScopeViolation, retries-exhausted URLError, JSON errors all land here
             ename = type(e).__name__

@@ -37,6 +37,25 @@ class ModuleEngine:
             output.append({"name": stub.name, "description": stub.description})
         return output
 
+    def contract_report(self) -> List[Dict[str, Any]]:
+        """Hardened contract audit: every module's alias, reads, returns,
+        failure modes, and auth requirement. Doctrine: no module ships
+        without failure modes."""
+        report = []
+        for name, cls in sorted(self.registry.items()):
+            stub = cls(target="")
+            report.append({
+                "name": name,
+                "alias": stub.alias,
+                "description": stub.description,
+                "reads": stub.reads,
+                "returns": stub.returns,
+                "failure_modes": stub.failure_modes,
+                "requires_auth": stub.requires_auth,
+                "contract_problems": stub.validate_contract(),
+            })
+        return report
+
     def execute_module(self, module_name: str, target: str, config: Dict[str, Any] = None) -> ModuleResult:
         if module_name not in self.registry:
             result = ModuleResult(module_name=module_name, target=target, status="FAILED")
